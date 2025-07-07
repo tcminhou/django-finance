@@ -10,7 +10,8 @@ Django-based backend for the Finance App
   ```bash
   pip install django
   ```
-  
+![alt text](pip_install_django.png)  
+
 ## 2. Create Project Structure
 - Initialize a new Django project by running:
   
@@ -26,6 +27,12 @@ In this command, config is the name of the main project module, and the dot (.) 
   ```bash
   python manage.py runserver
   ```
+  
+![alt text](run_server.png)
+
+- Result: 
+
+![alt text](result.png)
 
 # Design Database Schema
 - Models Overview
