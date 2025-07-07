@@ -2,12 +2,32 @@
 Django-based backend for the Finance App
 
 
-Huong dan Setup
-- Cai dat Django framework trong Terminal bang cau lenh: pip install django 
-- Tao cau truc project bang cau lenh: django-admin startproject config . (trong do config la ten module chinh, con . la tao file trong thu muc hien tai)
-- Dung lenh python manage.py runserver de chay thu server local host
+# Setup Instructions
 
-Design Database Schema
+## 1. Install Django Framework
+- Open the terminal and run the following command to install Django:
+ 
+  ```bash
+  pip install django
+  ```
+  
+## 2. Create Project Structure
+- Initialize a new Django project by running:
+  
+  ```bash
+  django-admin startproject config .
+  ```  
+
+In this command, config is the name of the main project module, and the dot (.) specifies that the project should be created in the current directory.
+  
+## 3. Run the Development Server
+- To start the local development server, use the following command:
+ 
+  ```bash
+  python manage.py runserver
+  ```
+
+# Design Database Schema
 - Models Overview
     + **Users**: Stores user details
     + **Categories**: Hierarchical transaction categories
