@@ -7,3 +7,12 @@ Huong dan Setup
 - Tao cau truc project bang cau lenh: django-admin startproject config . (trong do config la ten module chinh, con . la tao file trong thu muc hien tai)
 - Dung lenh python manage.py runserver de chay thu server local host
 
+Design Database Schema
+- Models Overview
+    + **Users**: Stores user details
+    + **Categories**: Hierarchical transaction categories
+    + **Transactions**: One-time financial transactions
+    + **RecurringTransactions**: Automatically repeating transactions
+    + **Settings**: User preferences
+- Erd Diagram:
+![alt text](ERD.png)
