@@ -34,6 +34,48 @@ In this command, config is the name of the main project module, and the dot (.) 
 
 ![alt text](result.png)
 
+# Install JWT Authentication
+
+## 1. Install dj-rest-auth and djangorestframework-simplejwt
+- Open the terminal and run the following command to install dj-rest-auth and djangorestframework-simplejwt:
+ 
+  ```bash
+  pip install dj-rest-auth
+  pip install djangorestframework-simplejwt
+  ```
+![alt text](simple_jwt.png) 
+
+## 2. Update settings.py with the following configurations:
+ 
+  ```bash
+  REST_AUTH = {
+    'USE_JWT': True,
+    'JWT_AUTH_COOKIE': 'djangojwtauth_cookie',
+    'JWT_AUTH_REFRESH_COOKIE': 'djangojwtauth_refresh_cookie'
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
+    ),
+}
+  ```
+
+## 3. Create a superuser account
+ 
+  ```bash
+  Username: admin
+
+  Email: admin@mail.com
+
+  Password: 123
+  ```
+
+## 4. Login to the admin panel
+- Use the superuser's username and password to verify the authentication functionality.
+ 
+![alt text](login_dj.png) 
+
 # Design Database Schema
 - **Database Engine**: MySQL (using `django.db.backends.mysql` in Django settings)
     **Database Configuration:**
