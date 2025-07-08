@@ -58,6 +58,12 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
     ),
+      
+INSTALLED_APPS = [      
+    
+    'rest_framework',
+    'rest_framework.authtoken',
+]
 }
   ```
 
@@ -74,7 +80,7 @@ REST_FRAMEWORK = {
 ## 4. Login to the admin panel
 - Use the superuser's username and password to verify the authentication functionality.
  
-![alt text](login_dj.png) 
+![alt text](api_token.png) 
 
 # Design Database Schema
 - **Database Engine**: MySQL (using `django.db.backends.mysql` in Django settings)

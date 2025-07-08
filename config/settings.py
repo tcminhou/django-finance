@@ -38,10 +38,11 @@ INSTALLED_APPS = [
     'FinanceApp',
     'rest_framework',
     'rest_framework.authtoken',
-    #'dj_rest_auth',
-    #'userauth',
+
 ]
 
+# 'dj_rest_auth',
+    # 'userauth',
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -141,10 +142,10 @@ REST_FRAMEWORK = {
     ),
 }
 
-# from datetime import timedelta
-#
-# SIMPLE_JWT = {
-#     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
-#     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-#     'AUTH_HEADER_TYPES': ('Bearer',),
-# }
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
