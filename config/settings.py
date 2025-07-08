@@ -39,6 +39,11 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
 
+
+
+    # 'dj_rest_auth',
+    # 'userauth',
+
 ]
 
 # 'dj_rest_auth',
@@ -84,11 +89,10 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'financedatabase',
         'USER': 'root',
-        'PASSWORD': '123456789', #Admin@123
+        'PASSWORD': 'Admin@123',  # '123456789'
         'HOST': ''  # mặc định localhost
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -129,16 +133,15 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-REST_AUTH = {
-    'USE_JWT': True,
-    'JWT_AUTH_COOKIE': 'djangojwtauth_cookie',
-    'JWT_AUTH_REFRESH_COOKIE': 'djangojwtauth_refresh_cookie'
-}
+# REST_AUTH = {
+#     'USE_JWT': True,
+#     'JWT_AUTH_COOKIE': 'djangojwtauth_cookie',
+#     'JWT_AUTH_REFRESH_COOKIE': 'djangojwtauth_refresh_cookie'
+# }
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
-
     ),
 }
 
