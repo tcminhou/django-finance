@@ -38,6 +38,7 @@ In this command, config is the name of the main project module, and the dot (.) 
 - **Database Engine**: MySQL (using `django.db.backends.mysql` in Django settings)
     **Database Configuration:**
     + This project uses **MySQL** as its primary database. Make sure to configure your `settings.py` with the appropriate credentials:
+      ```python
       DATABASES = {
           'default': {
               'ENGINE': 'django.db.backends.mysql',
@@ -48,7 +49,9 @@ In this command, config is the name of the main project module, and the dot (.) 
           }
       }
     + Run the following to set up your schema:
+      ```bash
       **python manage.py migrate**
+      ```
 - Erd Diagram:
 ![alt text](ERD.png)
 - Models Overview
