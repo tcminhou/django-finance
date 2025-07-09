@@ -2,7 +2,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer
-
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
@@ -37,7 +36,6 @@ class LoginViewSet(viewsets.ViewSet):
 
 # ViewSet xử lý đăng xuất người dùng, vô hiệu hóa refresh token
 class LogoutViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
 
     def create(self, request):
         try:
@@ -51,8 +49,6 @@ class LogoutViewSet(viewsets.ViewSet):
 
 # ViewSet xử lý thông tin tài khoản người dùng đã đăng nhập
 class UserViewSet(viewsets.ViewSet):
-    permission_classes = [IsAuthenticated]
-
     """
     GET /api/user/profile/     → Lấy thông tin người dùng hiện tại
     PUT /api/user/profile/     → Cập nhật tên và timezone của người dùng
