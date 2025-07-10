@@ -1,3 +1,4 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 
 
@@ -10,8 +11,8 @@ class BaseModel(models.Model):
         abstract = True
 
 
-class Users(BaseModel):
-    email = models.CharField(max_length=255, unique=False)
+class Users(AbstractUser):
+    email = models.CharField(max_length=255, unique=True, null=False)
     password_hash = models.CharField(max_length=255, null=False)
     name = models.CharField(max_length=100, null=False)
     timezone = models.CharField(max_length=50, null=False)

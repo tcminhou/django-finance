@@ -38,16 +38,13 @@ INSTALLED_APPS = [
     'FinanceApp',
     'rest_framework',
     'rest_framework.authtoken',
-
-
-
+    'corsheaders',
+    'rest_framework_simplejwt.token_blacklist',
     # 'dj_rest_auth',
     # 'userauth',
 
 ]
 
-# 'dj_rest_auth',
-    # 'userauth',
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -56,6 +53,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -93,6 +91,8 @@ DATABASES = {
         'HOST': ''  # mặc định localhost
     }
 }
+
+AUTH_USER_MODEL = 'FinanceApp.Users'
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -139,16 +139,30 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #     'JWT_AUTH_REFRESH_COOKIE': 'djangojwtauth_refresh_cookie'
 # }
 
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
-    ),
-}
+# REST_FRAMEWORK = {
+#     'DEFAULT_AUTHENTICATION_CLASSES': (
+#         "dj_rest_auth.jwt_auth.JWTCookieAuthentication",
+#     ),
+# }
 
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_BLACKLIST_ENABLED': True,  # Không bắt buộc nhưng rõ ràng hơn
+}
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    )
 }
