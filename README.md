@@ -82,6 +82,31 @@ INSTALLED_APPS = [
  
 ![alt text](api_token.png) 
 
+# Development Flow
+
+- We don't work directly on main or staging branch. We need to create a new branch for each task. The new branch should derive from **main** branch.
+
+# Branching model
+
+- Define how you want your branches to be named, and specify your development and production branches, to help us suggest source and target branches.
+
+- Branch prefixes Define the default prefixes for new branches, to allow automated workflows and make branch types clearer.
+
+  ## 1. Feature branch
+ Used for specific feature work or improvements. Generally branches from, and merges back into the development branch, using pull requests.
+- ```feature/Implement User Authentication Endpoints```
+
+  ## 2. Bugfix branch
+ Typically used to fix Release branches.
+- ```bugfix/{{short-description}}```
+
+   ## 3. Hotfix branch
+ Used to quickly fix a Production branch without interrupting changes in the development branch. In a Gitflow-based workflow, changes are usually merged into the production and development branches.
+- ```hotfix/{{short-description}}```
+
+  # Commit Message
+- ```Implement User Authentication Endpoints```
+
 # Design Database Schema
 - **Database Engine**: MySQL (using `django.db.backends.mysql` in Django settings)
     **Database Configuration:**
