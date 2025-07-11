@@ -1,14 +1,14 @@
+import pytz
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.hashers import make_password, check_password
-from FinanceApp.serializers import UserSerializer
-import pytz
+from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, UserSerializer, CategorySerializer
+from FinanceApp.models import Users, Categories
 
 
 # ViewSet xử lý đăng ký tài khoản người dùng mới
@@ -107,3 +107,75 @@ class UserViewSet(viewsets.ViewSet):
         user.password_hash = make_password(new_password)
         user.save()
         return Response({'detail': 'Password changed successfully.'}, status=status.HTTP_200_OK)
+
+
+class CategoryViewSet(viewsets.ViewSet):
+    serializer = CategorySerializer(Categories)
+
+    def list(self, request):
+        queryset = Categories.objects.filter(user_id=request.user, active=True)
+
+        # Filter by parent_category_id
+        parent_id = request.query_params.get('parent_id')
+        if parent_id is not None:
+            queryset = queryset.filter(parent_category_id=parent_id)
+
+        # Filter by keyword in name
+        keyword = request.query_params.get('keyword')
+        if keyword:
+            queryset = queryset.filter(name__icontains=keyword)
+
+        serializer = CategorySerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        data = request.data.copy()
+        data['user_id'] = request.user.id
+        serializer = CategorySerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'detail': 'Create Successful!'}, status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def retrieve(self, request, pk=None):
+        try:
+            category = Categories.objects.get(pk=pk, user_id=request.user.id)
+            serializer = CategorySerializer(category)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Categories.DoesNotExist:
+            return Response(
+                {"detail": "Category not found or does not belong to the current user."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    def update(self, request, pk=None):
+        try:
+            category = Categories.objects.get(pk=pk, user_id=request.user.id)
+        except Categories.DoesNotExist:
+            return Response(
+                {"detail": "Category not found or does not belong to the current user."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = CategorySerializer(category, data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'detail': 'Update Successful!'}, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        try:
+            category = Categories.objects.get(pk=pk, user_id=request.user.id)
+        except Categories.DoesNotExist:
+            return Response(
+                {"detail": "Category not found or does not belong to the current user."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        # update category_id = NULL
+        category.transactions_set.update(category_id=None)
+        category.recurringtransactions_set.update(category_id=None)
+
+        category.delete()
+
+        return Response({"detail": "Category deleted successfully."}, status=status.HTTP_204_NO_CONTENT)

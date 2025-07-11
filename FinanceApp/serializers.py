@@ -1,9 +1,10 @@
 import re
+import uuid
+import pytz
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
-from FinanceApp.models import Users
+from FinanceApp.models import Users, Categories
 from django.contrib.auth.hashers import make_password, check_password
-import pytz
 
 
 # Serializer dùng để hiển thị thông tin người dùng (GET /api/user/profile/)
@@ -59,9 +60,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     # Hash password
     def create(self, validated_data):
+        validated_data['username'] = validated_data['email'].split('@')[0] + '_' + str(uuid.uuid4())[:6]
         raw_password = validated_data.pop('password')
-        hashed_password = make_password(raw_password)
-        validated_data['password_hash'] = hashed_password
+        validated_data['password_hash'] = make_password(raw_password)
         return Users.objects.create(**validated_data)
 
 
@@ -100,3 +101,26 @@ class LoginUserSerializer(serializers.Serializer):
             'access': str(refresh.access_token),
             'refresh': str(refresh),
         }
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Categories
+        fields = '__all__'
+
+    def validate(self, data):
+        user = self.context['request'].user
+        parent = data.get('parent_category_id')
+        current_instance = self.instance
+
+        if parent:
+            # So sánh user ID của parent với user hiện tại
+            if parent.user_id_id != user.id:
+                raise serializers.ValidationError({
+                    'parent_category_id': 'Category does not belong to current user.'
+                })
+            if parent.id == current_instance.id and current_instance:
+                raise serializers.ValidationError({
+                    'parent_category_id': 'A category cannot be its own parent.'
+                })
+        return data
