@@ -94,7 +94,7 @@ INSTALLED_APPS = [
 
   ## 1. Feature branch
  Used for specific feature work or improvements. Generally branches from, and merges back into the development branch, using pull requests.
-- ```feature/Implement User Authentication Endpoints```
+- ```feature/{{short-description}}```
 
   ## 2. Bugfix branch
  Typically used to fix Release branches.
