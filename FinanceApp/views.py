@@ -6,9 +6,11 @@ from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from decimal import Decimal, InvalidOperation
 from django.contrib.auth.hashers import make_password, check_password
-from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, UserSerializer, CategorySerializer
-from FinanceApp.models import Users, Categories
+from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, UserSerializer, CategorySerializer, \
+    TransactionsSerializer
+from FinanceApp.models import Users, Categories, Transactions
 
 
 # ViewSet xử lý đăng ký tài khoản người dùng mới
@@ -148,6 +150,7 @@ class CategoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+    # update category
     def update(self, request, pk=None):
         try:
             category = Categories.objects.get(pk=pk, user_id=request.user.id)
@@ -164,6 +167,7 @@ class CategoryViewSet(viewsets.ViewSet):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    # delete category
     def destroy(self, request, pk=None):
         try:
             category = Categories.objects.get(pk=pk, user_id=request.user.id)
@@ -179,3 +183,71 @@ class CategoryViewSet(viewsets.ViewSet):
         category.delete()
 
         return Response({"detail": "Category deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
+
+
+# Transactions ViewSet
+class TransactionsViewSet(viewsets.ViewSet):
+    serializer = TransactionsSerializer(Transactions)
+
+    # Get all list Transactions
+    def list(self, request):
+        queryset = Transactions.objects.filter(user_id=request.user, active=True)
+
+        type_trans = request.query_params.get('type_trans')
+        if type_trans is not None:
+            queryset = queryset.filter(type=type_trans)
+
+        cate_id = request.query_params.get('cate_id')
+        if cate_id is not None:
+            queryset = queryset.filter(category_id=cate_id)
+
+        amount_min = request.query_params.get('amount_min')
+        amount_max = request.query_params.get('amount_max')
+        if amount_min is not None and amount_max is not None:
+            # Invalid format
+            try:
+                amount_min = Decimal(amount_min)
+                amount_max = Decimal(amount_max)
+                if amount_min <= amount_max:
+                    queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
+            except InvalidOperation:
+                return Response({"error": "Invalid amount format!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = TransactionsSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        data = request.data.copy()
+        data['user_id'] = request.user.id
+        serialzer = TransactionsSerializer(data=data, context={'request': 'request'})
+        if serialzer.is_valid():
+            serialzer.save(user_id=request.user)
+            return Response({'detail': 'Created successful!'}, status=status.HTTP_201_CREATED)
+        return Response(serialzer.errors, status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None):
+        try:
+            transaction = Transactions.objects.get(pk=pk, user_id=request.user.id)
+        except Transactions.DoesNotExist:
+            return Response(
+                {"detail": "Transactions not found or does not belong to the current user."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = TransactionsSerializer(transaction, data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'detail': 'Update Successful!'}, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        try:
+            transaction = Transactions.objects.get(pk=pk, user_id=request.user.id)
+        except Transactions.DoesNotExist:
+            return Response(
+                {"detail": "Transaction not found or does not belong to the current user."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        transaction.delete()
+        return Response({"detail": "Transaction deleted successfully."}, status=status.HTTP_204_NO_CONTENT)

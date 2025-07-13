@@ -9,6 +9,7 @@ r.register('login', views.LoginViewSet, 'login')
 r.register('logout', views.LogoutViewSet, 'logout')
 r.register('user', views.UserViewSet, 'user')
 r.register('category', views.CategoryViewSet, 'category')
+r.register('transaction', views.TransactionsViewSet, 'transaction')
 
 urlpatterns = [
     path('', include(r.urls))
