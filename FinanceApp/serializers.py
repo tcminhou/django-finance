@@ -35,7 +35,6 @@ class UserSerializer(serializers.ModelSerializer):
 
 # Serializer xử lý đăng ký tài khoản mới
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
     class Meta:
         model = Users
         fields = ['name', 'email', 'password', 'timezone']
