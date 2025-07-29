@@ -184,6 +184,7 @@ class CategoryViewSet(viewsets.ViewSet):
                 "errorData": {"pk": pk}
             }, status=status.HTTP_404_NOT_FOUND)
 
+    # update category
     def update(self, request, pk=None):
         try:
             category = Categories.objects.get(pk=pk, user_id=request.user.id)
@@ -204,6 +205,7 @@ class CategoryViewSet(viewsets.ViewSet):
             "errorData": serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
+    # delete category
     def destroy(self, request, pk=None):
         try:
             category = Categories.objects.get(pk=pk, user_id=request.user.id)

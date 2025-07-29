@@ -1,13 +1,15 @@
 import re
 import uuid
 import pytz
+from decimal import Decimal
+from datetime import date
+from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
-from FinanceApp.models import Users, Categories
-from django.contrib.auth.hashers import make_password, check_password
+from FinanceApp.models import Users, Categories, Transactions
 
 
-# Serializer dùng để hiển thị thông tin người dùng (GET /api/user/profile/)
+# Serializer show profile customer user
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
 
@@ -33,43 +35,38 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 
-# Serializer xử lý đăng ký tài khoản mới
+# Serializer register customer user
 class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Users
         fields = ['name', 'email', 'password', 'timezone']
 
+    # check email is available
     def validate_email(self, value):
         if Users.objects.filter(email=value).exists():
             raise serializers.ValidationError("Email already in use.")
         return value
 
+    # check timezone value
     def validate_timezone(self, value):
         if value not in pytz.all_timezones:
             raise serializers.ValidationError("Invalid timezone.")
         return value
 
-    """
-    Mật khẩu phải đủ mạnh:
-    - Tối thiểu 8 ký tự
-    - Có ít nhất 1 chữ cái
-    - Có ít nhất 1 chữ số
-    - Có ít nhất 1 ký tự đặc biệt
-    """
-
     def validate_password(self, value):
+        # password must be at least 8 characters
         if len(value) < 8:
             raise serializers.ValidationError("Password must be at least 8 characters.")
 
-        # Phải có ít nhất một chữ cái
+        # at least one letter
         if not re.search(r'[A-Za-z]', value):
             raise serializers.ValidationError("Password must contain at least one letter.")
 
-        # Phải có ít nhất một chữ số
+        # at least one digit (one number)
         if not re.search(r'\d', value):
             raise serializers.ValidationError("Password must contain at least one digit.")
 
-        # Phải có ít nhất một ký tự đặc biệt
+        # at least one special character
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', value):
             raise serializers.ValidationError("Password must contain at least one special character.")
 
@@ -82,7 +79,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return Users.objects.create(**validated_data)
 
 
-# Serializer xử lý đăng nhập (login)
+# Serializer login
 class LoginUserSerializer(serializers.Serializer):
     email = serializers.EmailField(
         error_messages={
@@ -103,14 +100,7 @@ class LoginUserSerializer(serializers.Serializer):
         email = data.get('email')
         password = data.get('password')
 
-        """
-        Xác thực email + mật khẩu:
-        - Kiểm tra người dùng tồn tại
-        - Kiểm tra mật khẩu đúng
-        - Kiểm tra tài khoản active
-        - Trả về access và refresh token
-        """
-
+        # Check out user email and password
         try:
             user = Users.objects.get(email=email)
         except Users.DoesNotExist:
@@ -123,7 +113,7 @@ class LoginUserSerializer(serializers.Serializer):
         if not user.is_active:
             raise serializers.ValidationError("User account is disabled.")
 
-        # Trả về access và refresh token
+        # return user access token and user refresh token
         refresh = RefreshToken.for_user(user)
         return {
             'message': "Login successful.",
@@ -176,27 +166,18 @@ class CategorySerializer(serializers.ModelSerializer):
         current_instance = self.instance
 
         if parent:
-            # So sánh user ID của parent với user hiện tại
+            # compare parent user id with current user
             if parent.user_id_id != user.id:
                 raise serializers.ValidationError({
                     'parent_category_id': 'Category does not belong to current user.'
                 })
-
-<< << << < Updated
-upstream
+                
 if parent.id == current_instance.id and current_instance:
-== == == =
-# check out cate id to prove not itself
-if current_instance and parent.id == current_instance.id:
->> >> >> > Stashed
-changes
+  
 raise serializers.ValidationError({
     'parent_category_id': 'A category cannot be its own parent.'
 })
 return data
-<< << << < Updated
-upstream
-== == == =
 
 class TransactionsSerializer(serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(read_only=True)
@@ -226,6 +207,3 @@ class TransactionsSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"category_id": "Category does not belong to the current user."})
 
         return data
-
->> >> >> > Stashed
-changes
