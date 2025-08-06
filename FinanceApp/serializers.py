@@ -1,16 +1,29 @@
 import re
 import uuid
-import pytz
 from decimal import Decimal
 from datetime import date
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import RefreshToken
-from FinanceApp.models import Users, Categories, Transactions
+from FinanceApp.models import Users, Categories, Transactions, RecurringTransactions, Settings
+from django.urls import reverse
+from django.conf import settings
+
+
+class StrictFieldsMixin:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        incoming = set(self.initial_data.keys()) if hasattr(self, 'initial_data') else set()
+        allowed = set(self.fields.keys())
+        unknown = incoming - allowed
+        if unknown:
+            raise serializers.ValidationError({
+                'unknown_fields': f"Unexpected fields: {', '.join(unknown)}"
+            })
 
 
 # Serializer show profile customer user
-class UserSerializer(serializers.ModelSerializer):
+class UserSerializer(StrictFieldsMixin, serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
@@ -106,7 +119,7 @@ class LoginUserSerializer(serializers.Serializer):
         except Users.DoesNotExist:
             raise serializers.ValidationError("Invalid email or password.")
 
-            # Check out password customer user
+        # Check out password customer user
         if not check_password(password, user.password):
             raise serializers.ValidationError({"Incorrect password": "Incorrect password please re-enter."})
 
@@ -155,7 +168,7 @@ class ChangePasswordSerializer(serializers.Serializer):
         return attrs
 
 
-class CategorySerializer(serializers.ModelSerializer):
+class CategorySerializer(StrictFieldsMixin, serializers.ModelSerializer):
     class Meta:
         model = Categories
         fields = '__all__'
@@ -171,17 +184,19 @@ class CategorySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'parent_category_id': 'Category does not belong to current user.'
                 })
-                
-if parent.id == current_instance.id and current_instance:
-  
-raise serializers.ValidationError({
-    'parent_category_id': 'A category cannot be its own parent.'
-})
-return data
 
-class TransactionsSerializer(serializers.ModelSerializer):
+            if parent.id == current_instance.id and current_instance:
+                raise serializers.ValidationError({
+                    'parent_category_id': 'A category cannot be its own parent.'
+                })
+
+        return data
+
+
+class TransactionsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
     user_id = serializers.PrimaryKeyRelatedField(read_only=True)
     active = serializers.BooleanField(default=True)
+    attachment_preview_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Transactions
@@ -207,3 +222,77 @@ class TransactionsSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"category_id": "Category does not belong to the current user."})
 
         return data
+
+    def get_attachment_preview_url(self, obj):
+        if obj.attachment_url:
+            path = obj.attachment_url.lstrip('/')
+            url = f"http://127.0.0.1:8000/api/transaction/{path}"
+            return url
+        return None
+
+
+class RecurringTransactionsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(read_only=True)  # auto từ request
+    active = serializers.BooleanField(default=True)
+
+    class Meta:
+        model = RecurringTransactions
+        fields = '__all__'
+
+    def validate_amount(self, value):
+        if value <= Decimal('0.00'):
+            raise serializers.ValidationError("Amount must be greater than 0.")
+        return value
+
+    def validate(self, data):
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+        next_occurrence = data.get('next_occurrence')
+        recurrence_type = data.get('recurrence_type')
+
+        today = date.today()
+
+        # Kiểm tra ngày bắt đầu
+        if start_date and start_date < today:
+            raise serializers.ValidationError({
+                "start_date": "Start date cannot be in the past."
+            })
+
+        # Kiểm tra ngày kết thúc
+        if end_date:
+            if start_date and end_date < start_date:
+                raise serializers.ValidationError({
+                    "end_date": "End date must be after start date."
+                })
+
+        # Kiểm tra ngày lặp tiếp theo
+        if next_occurrence and next_occurrence < today:
+            raise serializers.ValidationError({
+                "next_occurrence": "Next occurrence date cannot be in the past."
+            })
+
+        # Kiểm tra recurrence_type hợp lệ (có thể bỏ nếu dùng choices trong model)
+        allowed_recurrences = ['daily', 'weekly', 'monthly', 'yearly']
+        if recurrence_type not in allowed_recurrences:
+            raise serializers.ValidationError({
+                "recurrence_type": f"Invalid recurrence type. Allowed: {allowed_recurrences}."
+            })
+
+        return data
+
+
+class SettingsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
+    class Meta:
+        model = Settings
+        fields = ['id', 'user_id', 'currency', 'language']
+        extra_kwargs = {
+            'user_id': {'read_only': True}
+        }
+
+    def validate(self, attrs):
+        user = self.context['request'].user
+
+        if self.instance is None:  # Chỉ kiểm tra khi tạo mới
+            if Settings.objects.filter(user_id=user).exists():
+                raise serializers.ValidationError("User already has settings.")
+        return attrs

@@ -1,24 +1,40 @@
-import pytz
-import cloudinary.uploader
 import os
-from rest_framework import parsers
-from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework import viewsets, status
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
-from rest_framework.response import Response
+import pytz
 from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone as dt_timezone
+
+from urllib.parse import unquote
+
 from django.conf import settings
-from django.utils import timezone
+from django.shortcuts import redirect
+from django.http import FileResponse, Http404
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
-from datetime import datetime, timezone as dt_timezone
+from django.contrib.auth import logout
 from django.contrib.auth.hashers import make_password, check_password
+
+from rest_framework import viewsets, status, parsers
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import (
+    action, api_view, authentication_classes, permission_classes
+)
+from rest_framework.authentication import SessionAuthentication
+
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework_simplejwt.exceptions import TokenError
+
+import cloudinary.uploader
+
 from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, UserSerializer, CategorySerializer, \
-    TransactionsSerializer, ChangePasswordSerializer
-from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToken
+    TransactionsSerializer, ChangePasswordSerializer, RecurringTransactionsSerializer, SettingsSerializer
+from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToken, RecurringTransactions, Settings
+
+
+def logout_then_redirect(request):
+    logout(request)
+    return redirect('/api/')
 
 
 # ViewSet xử lý đăng ký tài khoản người dùng mới
@@ -43,6 +59,13 @@ class LoginViewSet(viewsets.ViewSet):
     permission_classes = [AllowAny]
 
     def create(self, request):
+        if request.user.is_authenticated:
+            return Response({
+                "errorCode": "403_ALREADY_AUTHENTICATED",
+                "errorMessage": "You are already logged in. Cannot login again.",
+                "errorData": None
+            }, status=status.HTTP_403_FORBIDDEN)
+
         serializer = LoginUserSerializer(data=request.data)
         if serializer.is_valid():
             return Response(serializer.validated_data, status=status.HTTP_200_OK)
@@ -227,7 +250,6 @@ class CategoryViewSet(viewsets.ViewSet):
 # Transactions ViewSet
 class TransactionsViewSet(viewsets.ViewSet):
     serializer = TransactionsSerializer(Transactions)
-    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
 
     # Get all list Transactions
     def list(self, request):
@@ -268,10 +290,16 @@ class TransactionsViewSet(viewsets.ViewSet):
 
         if uploaded_file:
             try:
+                user_id = request.user.id
+                user_directory = f'attachments/user_{user_id}'
+                if not default_storage.exists(user_directory):
+                    os.makedirs(os.path.join(settings.MEDIA_ROOT, user_directory))
+
                 file_name = default_storage.save(
-                    f'attachments/{uploaded_file.name}',
+                    os.path.join(user_directory, uploaded_file.name),
                     ContentFile(uploaded_file.read())
                 )
+
                 file_url = os.path.join(settings.MEDIA_URL, file_name)
                 data['attachment_url'] = file_url
             except Exception as e:
@@ -335,3 +363,214 @@ class TransactionsViewSet(viewsets.ViewSet):
             }, status=status.HTTP_404_NOT_FOUND)
         transaction.delete()
         return Response({"detail": "Transaction deleted successfully!"}, status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_protected_media(request, path):
+    decoded_path = unquote(path)
+    file_path = os.path.join(settings.MEDIA_ROOT, decoded_path)
+
+    if not os.path.isfile(file_path):
+        return Response({
+            "errorCode": "404_FILE_NOT_FOUND",
+            "errorMessage": "File không tồn tại hoặc đã bị xoá.",
+            "errorData": decoded_path
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    relative_path = decoded_path.lstrip('/')
+
+    transaction = Transactions.objects.filter(
+        user_id=request.user.id,
+        attachment_url__icontains=relative_path
+    ).first()
+
+    if not transaction:
+        return Response({
+            "errorCode": "403_FORBIDDEN",
+            "errorMessage": "Bạn không có quyền truy cập file này.",
+            "errorData": decoded_path
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    return FileResponse(open(file_path, 'rb'))
+
+
+class RecurringTransactionsViewSet(viewsets.ViewSet):
+
+    def list(self, request):
+        queryset = RecurringTransactions.objects.filter(user_id=request.user.id, active=True)
+
+        # Filter by type
+        trans_type = request.query_params.get('type')
+        if trans_type:
+            queryset = queryset.filter(type=trans_type)
+
+        # Filter by category
+        category_id = request.query_params.get('category_id')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+
+        # Filter by amount range
+        amount_min = request.query_params.get('amount_min')
+        amount_max = request.query_params.get('amount_max')
+        try:
+            if amount_min and amount_max:
+                min_val = Decimal(amount_min)
+                max_val = Decimal(amount_max)
+                if min_val <= max_val:
+                    queryset = queryset.filter(amount__gte=min_val, amount__lte=max_val)
+                else:
+                    return Response({
+                        "errorCode": "400_INVALID_RANGE",
+                        "errorMessage": "`amount_min` must be less than or equal to `amount_max`.",
+                        "errorData": {
+                            "amount_min": amount_min,
+                            "amount_max": amount_max
+                        }
+                    }, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidOperation:
+            return Response({
+                "errorCode": "400_INVALID_DECIMAL",
+                "errorMessage": "Invalid amount format.",
+                "errorData": {
+                    "amount_min": amount_min,
+                    "amount_max": amount_max
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = RecurringTransactionsSerializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def create(self, request):
+        data = request.data.copy()
+        print(request.data)
+        serializer = RecurringTransactionsSerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save(user_id=request.user)
+            return Response({'detail': 'Recurring transaction created successfully!'}, status=status.HTTP_201_CREATED)
+
+        return Response({
+            "errorCode": "400_INVALID_RECURRING_TRANSACTION",
+            "errorMessage": "Recurring transaction creation failed.",
+            "errorData": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    def retrieve(self, request, pk=None):
+        try:
+            item = RecurringTransactions.objects.get(pk=pk, user_id=request.user.id)
+        except RecurringTransactions.DoesNotExist:
+            return Response({
+                "errorCode": "404_RECURRING_TRANSACTION_NOT_FOUND",
+                "errorMessage": "Recurring transaction not found.",
+                "errorData": {"pk": pk}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = RecurringTransactionsSerializer(item)
+        return Response(serializer.data)
+
+    def update(self, request, pk=None):
+        try:
+            item = RecurringTransactions.objects.get(pk=pk, user_id=request.user.id)
+        except RecurringTransactions.DoesNotExist:
+            return Response({
+                "errorCode": "404_RECURRING_TRANSACTION_NOT_FOUND",
+                "errorMessage": "Recurring transaction not found.",
+                "errorData": {"pk": pk}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = RecurringTransactionsSerializer(item, data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'detail': 'Recurring transaction updated successfully!'}, status=status.HTTP_200_OK)
+
+        return Response({
+            "errorCode": "400_INVALID_RECURRING_TRANSACTION_UPDATE",
+            "errorMessage": "Update failed due to invalid data.",
+            "errorData": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    def destroy(self, request, pk=None):
+        try:
+            item = RecurringTransactions.objects.get(pk=pk, user_id=request.user.id)
+        except RecurringTransactions.DoesNotExist:
+            return Response({
+                "errorCode": "404_RECURRING_TRANSACTION_NOT_FOUND",
+                "errorMessage": "Recurring transaction not found.",
+                "errorData": {"pk": pk}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        item.delete()
+        return Response({'detail': 'Recurring transaction deleted successfully!'}, status=status.HTTP_204_NO_CONTENT)
+
+
+class SettingsViewSet(viewsets.ViewSet):
+    def list(self, request):
+        try:
+            settings = Settings.objects.filter(user_id=request.user).first()
+            if not settings:
+                return Response({
+                    "errorCode": "404_SETTINGS_NOT_FOUND",
+                    "errorMessage": "Settings not found for current user.",
+                    "errorData": {"user_id": request.user.id}
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            serializer = SettingsSerializer(settings)
+            return Response(serializer.data)
+
+        except Exception as e:
+            return Response({
+                "errorCode": "500_INTERNAL_ERROR",
+                "errorMessage": "An unexpected error occurred.",
+                "errorData": {"detail": str(e)}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def create(self, request):
+        if Settings.objects.filter(user_id=request.user).exists():
+            return Response({
+                "errorCode": "400_SETTINGS_EXISTS",
+                "errorMessage": "Settings already exist for this user.",
+                "errorData": {"user_id": request.user.id}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = request.data.copy()
+        data['user_id'] = request.user.id
+        serializer = SettingsSerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save(user_id=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        return Response({
+            "errorCode": "400_INVALID_SETTINGS_CREATE",
+            "errorMessage": "Invalid settings data.",
+            "errorData": serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    def update(self, request, pk=None):
+        try:
+            settings = Settings.objects.filter(user_id=request.user).first()
+            if not settings:
+                return Response({
+                    "errorCode": "404_SETTINGS_NOT_FOUND",
+                    "errorMessage": "Settings not found for current user.",
+                    "errorData": {"user_id": request.user.id}
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            data = request.data.copy()
+            data['user_id'] = request.user.id
+            serializer = SettingsSerializer(settings, data=data, partial=True, context={'request': request})
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+
+            return Response({
+                "errorCode": "400_INVALID_SETTINGS_UPDATE",
+                "errorMessage": "Invalid update data.",
+                "errorData": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({
+                "errorCode": "500_INTERNAL_ERROR",
+                "errorMessage": "An unexpected error occurred while updating settings.",
+                "errorData": {"detail": str(e)}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
