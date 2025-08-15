@@ -1,5 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from .manager import UserManager
+from django.utils import timezone
 
 
 class BaseModel(models.Model):
@@ -12,10 +14,16 @@ class BaseModel(models.Model):
 
 
 class Users(AbstractUser):
+    username = None  # Remove the default username field
     email = models.CharField(max_length=255, unique=True, null=False)
-    password_hash = models.CharField(max_length=255, null=False)
+    password = models.CharField(max_length=255, null=False, db_column='password_hash')
     name = models.CharField(max_length=100, null=False)
     timezone = models.CharField(max_length=50, null=False)
+
+    USERNAME_FIELD = 'email'  # Tell Django to use email to log in instead of username
+    REQUIRED_FIELDS = []  # Don't require any additional fields when creating a superuser
+
+    objects = UserManager()
 
     def __str__(self):
         return self.email
@@ -40,7 +48,7 @@ class Transactions(BaseModel):
     amount = models.DecimalField(max_digits=10, decimal_places=2, null=False)
     type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     notes = models.TextField(blank=True, null=False)
-    attachment_url = models.URLField(max_length=255)
+    attachment_url = models.CharField(max_length=255, blank=True)
     user_id = models.ForeignKey(Users, on_delete=models.CASCADE, null=False, blank=False)
     category_id = models.ForeignKey(Categories, on_delete=models.SET_NULL, null=True, blank=True, default=None)
 
@@ -82,3 +90,12 @@ class Settings(BaseModel):
 
     def __str__(self):
         return f"{self.user_id.email} - {self.currency} / {self.language}"
+
+
+class RevokedAccessToken(models.Model):
+    jti = models.CharField(max_length=255, unique=True, db_index=True)
+    revoked_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    def __str__(self):
+        return f"Revoked {self.jti} (expires {self.expires_at})"
