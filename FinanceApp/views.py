@@ -1,5 +1,7 @@
 import os
 import pytz
+
+from math import ceil
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 
@@ -13,9 +15,11 @@ from django.core.files.base import ContentFile
 from django.contrib.auth import logout
 from django.contrib.auth.hashers import make_password, check_password
 
-from rest_framework import viewsets, status, parsers
+from rest_framework import viewsets, status, parsers, pagination
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import (
     action, api_view, authentication_classes, permission_classes
 )
@@ -32,6 +36,81 @@ from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, User
 from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToken, RecurringTransactions, Settings
 
 
+class MyPagination(PageNumberPagination):
+    page_size = 12
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+    def paginate_queryset(self, queryset, request, view=None):
+        # Lấy page number
+        page_number = request.query_params.get(self.page_query_param, 1)
+        try:
+            page_number = int(page_number)
+        except ValueError:
+            return Response({
+                "errorCode": "404_INVALID_PAGE",
+                "errorMessage": "Page number is invalid.",
+                "errorData": {"page": page_number}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_number < 1:
+            return Response({
+                "errorCode": "404_INVALID_PAGE",
+                "errorMessage": "Page number must be >= 1.",
+                "errorData": {"page": page_number}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Gọi super để build self.page
+        result = super().paginate_queryset(queryset, request, view)
+        total_pages = self.page.paginator.num_pages if self.page else 0
+
+        if 0 < total_pages < page_number:
+            return Response({
+                "errorCode": "404_PAGE_OUT_OF_RANGE",
+                "errorMessage": "Page number out of range.",
+                "errorData": {"page": page_number, "total_pages": total_pages}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        page_size = request.query_params.get(self.page_size_query_param, self.page_size)
+        try:
+            page_size = int(page_size)
+        except ValueError:
+            return Response({
+                "errorCode": "404_INVALID_PAGE_SIZE",
+                "errorMessage": "Page size is invalid.",
+                "errorData": {"page_size": page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_size < 1:
+            return Response({
+                "errorCode": "404_INVALID_PAGE_SIZE",
+                "errorMessage": "Page size must be >= 1.",
+                "errorData": {"page_size": page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_size > self.max_page_size:
+            return Response({
+                "errorCode": "404_PAGE_SIZE_TOO_LARGE",
+                "errorMessage": f"Page size must be <= {self.max_page_size}.",
+                "errorData": {"page_size": page_size, "max_page_size": self.max_page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return result
+
+    def get_paginated_response(self, data):
+        return Response({
+            "meta": {
+                "total_items": self.page.paginator.count,
+                "total_pages": self.page.paginator.num_pages,
+                "current_page": self.page.number,
+                "page_size": self.get_page_size(self.request),
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link()
+            },
+            "data": data
+        })
+
+
 def logout_then_redirect(request):
     logout(request)
     return redirect('/api/')
@@ -46,6 +125,13 @@ class RegisterViewSet(viewsets.ViewSet):
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Regiter successful."}, status=status.HTTP_201_CREATED)
+
+        if request.user.is_authenticated:
+            return Response({
+                "errorCode": "403_ALREADY_AUTHENTICATED",
+                "errorMessage": "You are already logged in. Cannot register.",
+                "errorData": None
+            }, status=status.HTTP_403_FORBIDDEN)
 
         return Response({
             "errorCode": "400_INVALID_INPUT",
@@ -178,9 +264,13 @@ class CategoryViewSet(viewsets.ViewSet):
         keyword = request.query_params.get('keyword')
         if keyword:
             queryset = queryset.filter(name__icontains=keyword)
-        print(Categories.objects.all().values("id", "user_id", "active"))
-        serializer = CategorySerializer(queryset, many=True)
-        return Response(serializer.data)
+
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        if isinstance(paginated_queryset, Response):
+            return paginated_queryset
+        serializer = CategorySerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
     def create(self, request):
         data = request.data.copy()
@@ -249,11 +339,15 @@ class CategoryViewSet(viewsets.ViewSet):
 
 # Transactions ViewSet
 class TransactionsViewSet(viewsets.ViewSet):
-    serializer = TransactionsSerializer(Transactions)
+    pagination_class = MyPagination
 
     # Get all list Transactions
     def list(self, request):
         queryset = Transactions.objects.filter(user_id=request.user.id)
+
+        keyword = request.query_params.get('keyword')
+        if keyword:
+            queryset = queryset.filter(notes__icontains=keyword)
 
         type_trans = request.query_params.get('type_trans')
         if type_trans is not None:
@@ -265,24 +359,44 @@ class TransactionsViewSet(viewsets.ViewSet):
 
         amount_min = request.query_params.get('amount_min')
         amount_max = request.query_params.get('amount_max')
-        if amount_min is not None and amount_max is not None:
-            # Invalid format
-            try:
+        try:
+            if amount_min is not None:
                 amount_min = Decimal(amount_min)
+                queryset = queryset.filter(amount__gte=amount_min)
+
+            if amount_max is not None:
                 amount_max = Decimal(amount_max)
-                if amount_min <= amount_max:
-                    queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
-            except InvalidOperation:
-                return Response({
-                    "errorCode": "400_INVALID_DECIMAL",
-                    "errorMessage": "Invalid amount format.",
-                    "errorData": {
-                        "amount_min": amount_min,
-                        "amount_max": amount_max
-                    }
-                }, status=status.HTTP_400_BAD_REQUEST)
-        serializer = TransactionsSerializer(queryset, many=True)
-        return Response(serializer.data)
+                queryset = queryset.filter(amount__lte=amount_max)
+
+            if amount_min is not None and amount_max is not None:
+                if amount_max < amount_min:
+                    return Response({
+                        "errorCode": "400_INVALID_RANGE",
+                        "errorMessage": "`amount_min` must be less than or equal to `amount_max`.",
+                        "errorData": {
+                            "amount_min": str(amount_min),
+                            "amount_max": str(amount_max)
+                        }
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
+
+        except InvalidOperation:
+            return Response({
+                "errorCode": "400_INVALID_DECIMAL",
+                "errorMessage": "Invalid amount format.",
+                "errorData": {
+                    "amount_min": amount_min,
+                    "amount_max": amount_max
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        if isinstance(paginated_queryset, Response):
+            return paginated_queryset
+        serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
     def create(self, request):
         data = request.data.copy()
@@ -374,8 +488,8 @@ def serve_protected_media(request, path):
     if not os.path.isfile(file_path):
         return Response({
             "errorCode": "404_FILE_NOT_FOUND",
-            "errorMessage": "File không tồn tại hoặc đã bị xoá.",
-            "errorData": decoded_path
+            "errorMessage": "File does not exist or has been deleted.",
+            "errorData": os.path.basename(decoded_path)
         }, status=status.HTTP_404_NOT_FOUND)
 
     relative_path = decoded_path.lstrip('/')
@@ -388,14 +502,15 @@ def serve_protected_media(request, path):
     if not transaction:
         return Response({
             "errorCode": "403_FORBIDDEN",
-            "errorMessage": "Bạn không có quyền truy cập file này.",
-            "errorData": decoded_path
+            "errorMessage": "You do not have permission to access this file.",
+            "errorData": os.path.basename(decoded_path)
         }, status=status.HTTP_403_FORBIDDEN)
 
     return FileResponse(open(file_path, 'rb'))
 
 
 class RecurringTransactionsViewSet(viewsets.ViewSet):
+    pagination_class = MyPagination
 
     def list(self, request):
         queryset = RecurringTransactions.objects.filter(user_id=request.user.id, active=True)
@@ -414,20 +529,26 @@ class RecurringTransactionsViewSet(viewsets.ViewSet):
         amount_min = request.query_params.get('amount_min')
         amount_max = request.query_params.get('amount_max')
         try:
-            if amount_min and amount_max:
-                min_val = Decimal(amount_min)
-                max_val = Decimal(amount_max)
-                if min_val <= max_val:
-                    queryset = queryset.filter(amount__gte=min_val, amount__lte=max_val)
-                else:
+            if amount_min is not None:
+                amount_min = Decimal(amount_min)
+                queryset = queryset.filter(amount__gte=amount_min)
+
+            if amount_max is not None:
+                amount_max = Decimal(amount_max)
+                queryset = queryset.filter(amount__lte=amount_max)
+
+            if amount_min is not None and amount_max is not None:
+                if amount_max < amount_min:
                     return Response({
                         "errorCode": "400_INVALID_RANGE",
                         "errorMessage": "`amount_min` must be less than or equal to `amount_max`.",
                         "errorData": {
-                            "amount_min": amount_min,
-                            "amount_max": amount_max
+                            "amount_min": str(amount_min),
+                            "amount_max": str(amount_max)
                         }
                     }, status=status.HTTP_400_BAD_REQUEST)
+
+                queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
         except InvalidOperation:
             return Response({
                 "errorCode": "400_INVALID_DECIMAL",
@@ -438,8 +559,12 @@ class RecurringTransactionsViewSet(viewsets.ViewSet):
                 }
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = RecurringTransactionsSerializer(queryset, many=True)
-        return Response(serializer.data)
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        if isinstance(paginated_queryset, Response):
+            return paginated_queryset
+        serializer = CategorySerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
     def create(self, request):
         data = request.data.copy()
@@ -545,32 +670,18 @@ class SettingsViewSet(viewsets.ViewSet):
             "errorData": serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    def update(self, request, pk=None):
-        try:
-            settings = Settings.objects.filter(user_id=request.user).first()
-            if not settings:
-                return Response({
-                    "errorCode": "404_SETTINGS_NOT_FOUND",
-                    "errorMessage": "Settings not found for current user.",
-                    "errorData": {"user_id": request.user.id}
-                }, status=status.HTTP_404_NOT_FOUND)
-
-            data = request.data.copy()
-            data['user_id'] = request.user.id
-            serializer = SettingsSerializer(settings, data=data, partial=True, context={'request': request})
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-
+    @action(detail=False, methods=['patch', 'put'], url_path='update-settings')
+    def update_settings(self, request):
+        settings = Settings.objects.filter(user_id=request.user).first()
+        if not settings:
             return Response({
-                "errorCode": "400_INVALID_SETTINGS_UPDATE",
-                "errorMessage": "Invalid update data.",
-                "errorData": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "errorCode": "404_SETTINGS_NOT_FOUND",
+                "errorMessage": "Settings not found.",
+                "errorData": "Cant found"
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        except Exception as e:
-            return Response({
-                "errorCode": "500_INTERNAL_ERROR",
-                "errorMessage": "An unexpected error occurred while updating settings.",
-                "errorData": {"detail": str(e)}
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        serializer = SettingsSerializer(settings, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
