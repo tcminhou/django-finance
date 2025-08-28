@@ -1,5 +1,7 @@
 import re
 import uuid
+import pycountry
+from iso4217 import Currency as ISO4217_Currency
 from decimal import Decimal
 from datetime import date
 from django.contrib.auth.hashers import make_password, check_password
@@ -17,8 +19,13 @@ class StrictFieldsMixin:
         allowed = set(self.fields.keys())
         unknown = incoming - allowed
         if unknown:
+            unknown_list = sorted(unknown)
             raise serializers.ValidationError({
-                'unknown_fields': f"Unexpected fields: {', '.join(unknown)}"
+                "errorCode": "400_UNKNOWN_FIELDS",
+                "errorMessage": f"Unexpected fields: {', '.join(unknown_list)}",
+                "errorData": {
+                    "unknown_fields": unknown_list
+                }
             })
 
 
@@ -224,15 +231,17 @@ class TransactionsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
         return data
 
     def get_attachment_preview_url(self, obj):
-        if obj.attachment_url:
-            path = obj.attachment_url.lstrip('/')
-            url = f"http://127.0.0.1:8000/api/transaction/{path}"
+        request = self.context.get('request')
+        if obj.attachment_url and request:
+            path = obj.attachment_url.removeprefix('/media/')
+            base_url = request.build_absolute_uri('/')
+            url = f"{base_url}api/transaction/{path}"
             return url
         return None
 
 
 class RecurringTransactionsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
-    user_id = serializers.PrimaryKeyRelatedField(read_only=True)  # auto từ request
+    user_id = serializers.PrimaryKeyRelatedField(read_only=True)
     active = serializers.BooleanField(default=True)
 
     class Meta:
@@ -252,20 +261,17 @@ class RecurringTransactionsSerializer(StrictFieldsMixin, serializers.ModelSerial
 
         today = date.today()
 
-        # Kiểm tra ngày bắt đầu
         if start_date and start_date < today:
             raise serializers.ValidationError({
                 "start_date": "Start date cannot be in the past."
             })
 
-        # Kiểm tra ngày kết thúc
         if end_date:
             if start_date and end_date < start_date:
                 raise serializers.ValidationError({
                     "end_date": "End date must be after start date."
                 })
 
-        # Kiểm tra ngày lặp tiếp theo
         if next_occurrence and next_occurrence < today:
             raise serializers.ValidationError({
                 "next_occurrence": "Next occurrence date cannot be in the past."
@@ -281,7 +287,7 @@ class RecurringTransactionsSerializer(StrictFieldsMixin, serializers.ModelSerial
         return data
 
 
-class SettingsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
+class SettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Settings
         fields = ['id', 'user_id', 'currency', 'language']
@@ -289,10 +295,16 @@ class SettingsSerializer(StrictFieldsMixin, serializers.ModelSerializer):
             'user_id': {'read_only': True}
         }
 
-    def validate(self, attrs):
-        user = self.context['request'].user
+    def validate_currency(self, value):
+        if not pycountry.currencies.get(alpha_3=value):
+            raise serializers.ValidationError(
+                f"Currency '{value}' không hợp lệ (theo ISO 4217, ví dụ: VND, USD, EUR)."
+            )
+        return value
 
-        if self.instance is None:  # Chỉ kiểm tra khi tạo mới
-            if Settings.objects.filter(user_id=user).exists():
-                raise serializers.ValidationError("User already has settings.")
-        return attrs
+    def validate_language(self, value):
+        if not pycountry.languages.get(alpha_2=value):
+            raise serializers.ValidationError(
+                f"Language '{value}' không hợp lệ (theo ISO 639-1, ví dụ: vi, en, us, ja)."
+            )
+        return value
