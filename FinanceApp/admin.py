@@ -9,6 +9,9 @@ from elasticsearch.helpers import scan
 from elasticsearch_dsl.connections import connections
 from .search_indexes import TransactionDocument
 from .models import Users, Categories, Transactions, RecurringTransactions, Settings
+from django.contrib.auth.models import Group
+
+admin.site.unregister(Group)
 
 # Ẩn Group mặc định
 admin.site.unregister(Group)

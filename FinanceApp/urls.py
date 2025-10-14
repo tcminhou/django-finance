@@ -17,5 +17,6 @@ r.register('setting', views.SettingsViewSet, 'setting')
 urlpatterns = [
     path('', include(r.urls)),
     path('token/refresh/', TokenRefreshView.as_view()),
-    path('transaction/media/<path:path>', views.serve_protected_media, name='serve-protected-media'),
+    path('transaction/<path:path>', views.serve_protected_media, name='serve-protected-media'),
 ]
+

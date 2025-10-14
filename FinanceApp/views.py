@@ -1,16 +1,13 @@
 import os
 import pytz
-<<<<<<< Updated upstream
-=======
 import hashlib
 
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.contrib import admin
-
 from math import ceil
->>>>>>> Stashed changes
+
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 
@@ -25,9 +22,11 @@ from django.contrib.auth import logout
 from django.db.models import Q
 from django.contrib.auth.hashers import make_password, check_password
 
-from rest_framework import viewsets, status, parsers
+from rest_framework import viewsets, status, parsers, pagination
 from rest_framework.response import Response
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import (
     action, api_view, authentication_classes, permission_classes
 )
@@ -44,8 +43,6 @@ from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, User
 from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToken, RecurringTransactions, Settings
 
 
-<<<<<<< Updated upstream
-=======
 class MyPagination(PageNumberPagination):
     page_size = 12
     page_size_query_param = 'page_size'
@@ -121,7 +118,6 @@ class MyPagination(PageNumberPagination):
         })
 
 
->>>>>>> Stashed changes
 def logout_then_redirect(request):
     logout(request)
     return redirect('/api/')
@@ -136,6 +132,13 @@ class RegisterViewSet(viewsets.ViewSet):
         if serializer.is_valid():
             serializer.save()
             return Response({"message": "Regiter successful."}, status=status.HTTP_201_CREATED)
+
+        if request.user.is_authenticated:
+            return Response({
+                "errorCode": "403_ALREADY_AUTHENTICATED",
+                "errorMessage": "You are already logged in. Cannot register.",
+                "errorData": None
+            }, status=status.HTTP_403_FORBIDDEN)
 
         return Response({
             "errorCode": "400_INVALID_INPUT",
@@ -268,9 +271,13 @@ class CategoryViewSet(viewsets.ViewSet):
         keyword = request.query_params.get('keyword')
         if keyword:
             queryset = queryset.filter(name__icontains=keyword)
-        print(Categories.objects.all().values("id", "user_id", "active"))
-        serializer = CategorySerializer(queryset, many=True)
-        return Response(serializer.data)
+
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        if isinstance(paginated_queryset, Response):
+            return paginated_queryset
+        serializer = CategorySerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
     def create(self, request):
         data = request.data.copy()
@@ -339,7 +346,7 @@ class CategoryViewSet(viewsets.ViewSet):
 
 # Transactions ViewSet
 class TransactionsViewSet(viewsets.ViewSet):
-    serializer = TransactionsSerializer(Transactions)
+    pagination_class = MyPagination
 
     @method_decorator(cache_page(60, key_prefix=lambda request: f"user_{request.user.id}"))
     # Get all list Transactions
@@ -348,93 +355,79 @@ class TransactionsViewSet(viewsets.ViewSet):
         raw_key = f"user={request.user.id}&{request.get_full_path()}"
         cache_key = "transactions:" + hashlib.md5(raw_key.encode()).hexdigest()
 
-<<<<<<< Updated upstream
-        type_trans = request.query_params.get('type_trans')
-        if type_trans is not None:
-            queryset = queryset.filter(type=type_trans)
-=======
-        # Kiểm tra cache
-        id_list = cache.get(cache_key)
-        if id_list is None:
-            # Query DB nếu chưa có cache
-            queryset = Transactions.objects.filter(user_id=request.user.id)
+# Kiểm tra cache
+    id_list = cache.get(cache_key)
+    if id_list is None:
+        # Query DB nếu chưa có cache
+        queryset = Transactions.objects.filter(user_id=request.user.id)
 
-            keyword = request.query_params.get('keyword')
-            if keyword:
-                words = keyword.split()
-                max_words = 50
-                search_string = " ".join(words[:max_words])
-                # queryset = queryset.extra(
-                #     where=["MATCH(notes) AGAINST (%s IN NATURAL LANGUAGE MODE)"],
-                #     params=[search_string],
-                # )
->>>>>>> Stashed changes
+        keyword = request.query_params.get('keyword')
+        if keyword:
+            words = keyword.split()
+            max_words = 50
+            search_string = " ".join(words[:max_words])
+            # queryset = queryset.extra(
+            #     where=["MATCH(notes) AGAINST (%s IN NATURAL LANGUAGE MODE)"],
+            #     params=[search_string],
+            # )
+            queryset = queryset.filter(notes__icontains=search_string)
 
-                for word in search_string.split():
-                    queryset = queryset.filter(notes__icontains=word)
 
-<<<<<<< Updated upstream
-        amount_min = request.query_params.get('amount_min')
-        amount_max = request.query_params.get('amount_max')
-        if amount_min is not None and amount_max is not None:
-            # Invalid format
-            try:
-                amount_min = Decimal(amount_min)
-                amount_max = Decimal(amount_max)
-                if amount_min <= amount_max:
-                    queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
-=======
-            type_trans = request.query_params.get('type_trans')
-            if type_trans is not None:
-                queryset = queryset.filter(type=type_trans)
+                    for word in search_string.split():
+                        queryset = queryset.filter(notes__icontains=word)
 
-            cate_id = request.query_params.get('cate_id')
-            if cate_id is not None:
-                queryset = queryset.filter(category_id=cate_id)
+    type_trans = request.query_params.get('type_trans')
+    if type_trans is not None:
+        queryset = queryset.filter(type=type_trans)
 
-            amount_min = request.query_params.get('amount_min')
-            amount_max = request.query_params.get('amount_max')
-            try:
-                if amount_min is not None:
-                    amount_min = Decimal(amount_min)
-                    queryset = queryset.filter(amount__gte=amount_min)
-                if amount_max is not None:
-                    amount_max = Decimal(amount_max)
-                    queryset = queryset.filter(amount__lte=amount_max)
-                if amount_min is not None and amount_max is not None and amount_max < amount_min:
+    cate_id = request.query_params.get('cate_id')
+    if cate_id is not None:
+        queryset = queryset.filter(category_id=cate_id)
+
+    amount_min = request.query_params.get('amount_min')
+    amount_max = request.query_params.get('amount_max')
+    try:
+        if amount_min is not None:
+            amount_min = Decimal(amount_min)
+            queryset = queryset.filter(amount__gte=amount_min)
+        if amount_max is not None:
+            amount_max = Decimal(amount_max)
+            queryset = queryset.filter(amount__lte=amount_max)
+        if amount_min is not None and amount_max is not None and amount_max < amount_min:
+            return Response({
+                "errorCode": "400_INVALID_RANGE",
+                "errorMessage": "`amount_min` must be <= `amount_max`.",
+                "errorData": {"amount_min": str(amount_min), "amount_max": str(amount_max)}
+            }, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, InvalidOperation):
+        return Response({
+            "errorCode": "400_INVALID_AMOUNT",
+            "errorMessage": "Invalid `amount_min` or `amount_max` value."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+                except InvalidOperation:
                     return Response({
-                        "errorCode": "400_INVALID_RANGE",
-                        "errorMessage": "`amount_min` must be <= `amount_max`.",
-                        "errorData": {"amount_min": str(amount_min), "amount_max": str(amount_max)}
-                    }, status=status.HTTP_400_BAD_REQUEST)
->>>>>>> Stashed changes
-            except InvalidOperation:
-                return Response({
-                    "errorCode": "400_INVALID_DECIMAL",
-                    "errorMessage": "Invalid amount format.",
-<<<<<<< Updated upstream
-                    "errorData": {
-                        "amount_min": amount_min,
-                        "amount_max": amount_max
-                    }
-                }, status=status.HTTP_400_BAD_REQUEST)
-        serializer = TransactionsSerializer(queryset, many=True)
-        return Response(serializer.data)
-=======
-                    "errorData": {"amount_min": amount_min, "amount_max": amount_max}
-                }, status=status.HTTP_400_BAD_REQUEST)
+                        "errorCode": "400_INVALID_DECIMAL",
+                        "errorMessage": "Invalid amount format.",
 
-            # Lưu id list vào cache (nhẹ hơn full object)
-            id_list = list(queryset.values_list("id", flat=True))
-            cache.set(cache_key, id_list, 60*60*24*7)
+    if amount_min is not None and amount_max is not None and amount_max < amount_min:
+        return Response({
+            "errorCode": "400_INVALID_RANGE",
+            "errorMessage": "`amount_min` must be <= `amount_max`.",
+            "errorData": {"amount_min": amount_min, "amount_max": amount_max}
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Phân trang trực tiếp trên id_list đã cache
-        queryset = Transactions.objects.filter(id__in=id_list).order_by("-date")
-        paginator = MyPagination()
-        paginated_queryset = paginator.paginate_queryset(queryset, request)
-        serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
->>>>>>> Stashed changes
+    # Lưu id list vào cache (nhẹ hơn full object)
+    id_list = list(queryset.values_list("id", flat=True))
+    cache.set(cache_key, id_list, 60 * 60 * 24 * 7)
+
+    # Phân trang trực tiếp trên id_list đã cache
+    queryset = Transactions.objects.filter(id__in=id_list).order_by("-date")
+    paginator = MyPagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
+    return paginator.get_paginated_response(serializer.data)
+
 
     def create(self, request):
         data = request.data.copy()
@@ -526,8 +519,8 @@ def serve_protected_media(request, path):
     if not os.path.isfile(file_path):
         return Response({
             "errorCode": "404_FILE_NOT_FOUND",
-            "errorMessage": "File không tồn tại hoặc đã bị xoá.",
-            "errorData": decoded_path
+            "errorMessage": "File does not exist or has been deleted.",
+            "errorData": os.path.basename(decoded_path)
         }, status=status.HTTP_404_NOT_FOUND)
 
     relative_path = decoded_path.lstrip('/')
@@ -540,14 +533,15 @@ def serve_protected_media(request, path):
     if not transaction:
         return Response({
             "errorCode": "403_FORBIDDEN",
-            "errorMessage": "Bạn không có quyền truy cập file này.",
-            "errorData": decoded_path
+            "errorMessage": "You do not have permission to access this file.",
+            "errorData": os.path.basename(decoded_path)
         }, status=status.HTTP_403_FORBIDDEN)
 
     return FileResponse(open(file_path, 'rb'))
 
 
 class RecurringTransactionsViewSet(viewsets.ViewSet):
+    pagination_class = MyPagination
 
     def list(self, request):
         queryset = RecurringTransactions.objects.filter(user_id=request.user.id, active=True)
@@ -566,20 +560,26 @@ class RecurringTransactionsViewSet(viewsets.ViewSet):
         amount_min = request.query_params.get('amount_min')
         amount_max = request.query_params.get('amount_max')
         try:
-            if amount_min and amount_max:
-                min_val = Decimal(amount_min)
-                max_val = Decimal(amount_max)
-                if min_val <= max_val:
-                    queryset = queryset.filter(amount__gte=min_val, amount__lte=max_val)
-                else:
+            if amount_min is not None:
+                amount_min = Decimal(amount_min)
+                queryset = queryset.filter(amount__gte=amount_min)
+
+            if amount_max is not None:
+                amount_max = Decimal(amount_max)
+                queryset = queryset.filter(amount__lte=amount_max)
+
+            if amount_min is not None and amount_max is not None:
+                if amount_max < amount_min:
                     return Response({
                         "errorCode": "400_INVALID_RANGE",
                         "errorMessage": "`amount_min` must be less than or equal to `amount_max`.",
                         "errorData": {
-                            "amount_min": amount_min,
-                            "amount_max": amount_max
+                            "amount_min": str(amount_min),
+                            "amount_max": str(amount_max)
                         }
                     }, status=status.HTTP_400_BAD_REQUEST)
+
+                queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
         except InvalidOperation:
             return Response({
                 "errorCode": "400_INVALID_DECIMAL",
@@ -590,8 +590,12 @@ class RecurringTransactionsViewSet(viewsets.ViewSet):
                 }
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = RecurringTransactionsSerializer(queryset, many=True)
-        return Response(serializer.data)
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        if isinstance(paginated_queryset, Response):
+            return paginated_queryset
+        serializer = CategorySerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
 
     def create(self, request):
         data = request.data.copy()
@@ -697,32 +701,18 @@ class SettingsViewSet(viewsets.ViewSet):
             "errorData": serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
-    def update(self, request, pk=None):
-        try:
-            settings = Settings.objects.filter(user_id=request.user).first()
-            if not settings:
-                return Response({
-                    "errorCode": "404_SETTINGS_NOT_FOUND",
-                    "errorMessage": "Settings not found for current user.",
-                    "errorData": {"user_id": request.user.id}
-                }, status=status.HTTP_404_NOT_FOUND)
-
-            data = request.data.copy()
-            data['user_id'] = request.user.id
-            serializer = SettingsSerializer(settings, data=data, partial=True, context={'request': request})
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data, status=status.HTTP_200_OK)
-
+    @action(detail=False, methods=['patch', 'put'], url_path='update-settings')
+    def update_settings(self, request):
+        settings = Settings.objects.filter(user_id=request.user).first()
+        if not settings:
             return Response({
-                "errorCode": "400_INVALID_SETTINGS_UPDATE",
-                "errorMessage": "Invalid update data.",
-                "errorData": serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "errorCode": "404_SETTINGS_NOT_FOUND",
+                "errorMessage": "Settings not found.",
+                "errorData": "Cant found"
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        except Exception as e:
-            return Response({
-                "errorCode": "500_INTERNAL_ERROR",
-                "errorMessage": "An unexpected error occurred while updating settings.",
-                "errorData": {"detail": str(e)}
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        serializer = SettingsSerializer(settings, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
