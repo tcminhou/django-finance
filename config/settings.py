@@ -29,12 +29,20 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    # theme admin phải trước
+    'jazzmin',
+    # 'grappelli',
+    # 'colorfield',
+
+    # Django core
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    # App của bạn
     'FinanceApp',
     'rest_framework',
     'rest_framework.authtoken',
@@ -42,10 +50,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'cloudinary',
     'cloudinary_storage',
-
-    # 'dj_rest_auth',
-    # 'userauth',
-
+    'django_elasticsearch_dsl',
 ]
 
 MIDDLEWARE = [
@@ -91,7 +96,8 @@ DATABASES = {
         'NAME': 'financedatabase',
         'USER': 'root',
         'PASSWORD': 'Admin@123',  # '123456789'
-        'HOST': ''  # mặc định localhost
+        'HOST': '',  # mặc định localhost
+        'CONN_MAX_AGE': 300,
     }
 }
 
@@ -129,7 +135,9 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATICFILES_DIRS = []
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 LOGOUT_REDIRECT_URL = '/api/'
 
@@ -178,3 +186,18 @@ DEFAULT_FILE_STORAGE = 'django.core.files.storage.FileSystemStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# settings.py
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": "D:/tmp/django_cache",
+    }
+}
+
+ELASTICSEARCH_DSL = {
+    'default': {
+        'hosts': 'http://localhost:9200/',
+        'timeout': 60,
+    },
+}

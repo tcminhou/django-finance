@@ -1,5 +1,16 @@
 import os
 import pytz
+<<<<<<< Updated upstream
+=======
+import hashlib
+
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
+from django.contrib import admin
+
+from math import ceil
+>>>>>>> Stashed changes
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 
@@ -11,6 +22,7 @@ from django.http import FileResponse, Http404
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.contrib.auth import logout
+from django.db.models import Q
 from django.contrib.auth.hashers import make_password, check_password
 
 from rest_framework import viewsets, status, parsers
@@ -32,6 +44,84 @@ from FinanceApp.serializers import RegisterSerializer, LoginUserSerializer, User
 from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToken, RecurringTransactions, Settings
 
 
+<<<<<<< Updated upstream
+=======
+class MyPagination(PageNumberPagination):
+    page_size = 12
+    page_size_query_param = 'page_size'
+    max_page_size = 1000
+
+    def paginate_queryset(self, queryset, request, view=None):
+        # Lấy page number
+        page_number = request.query_params.get(self.page_query_param, 1)
+        try:
+            page_number = int(page_number)
+        except ValueError:
+            return Response({
+                "errorCode": "404_INVALID_PAGE",
+                "errorMessage": "Page number is invalid.",
+                "errorData": {"page": page_number}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_number < 1:
+            return Response({
+                "errorCode": "404_INVALID_PAGE",
+                "errorMessage": "Page number must be >= 1.",
+                "errorData": {"page": page_number}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Gọi super để build self.page
+        result = super().paginate_queryset(queryset, request, view)
+        total_pages = self.page.paginator.num_pages if self.page else 0
+
+        if 0 < total_pages < page_number:
+            return Response({
+                "errorCode": "404_PAGE_OUT_OF_RANGE",
+                "errorMessage": "Page number out of range.",
+                "errorData": {"page": page_number, "total_pages": total_pages}
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        page_size = request.query_params.get(self.page_size_query_param, self.page_size)
+        try:
+            page_size = int(page_size)
+        except ValueError:
+            return Response({
+                "errorCode": "404_INVALID_PAGE_SIZE",
+                "errorMessage": "Page size is invalid.",
+                "errorData": {"page_size": page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_size < 1:
+            return Response({
+                "errorCode": "404_INVALID_PAGE_SIZE",
+                "errorMessage": "Page size must be >= 1.",
+                "errorData": {"page_size": page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if page_size > self.max_page_size:
+            return Response({
+                "errorCode": "404_PAGE_SIZE_TOO_LARGE",
+                "errorMessage": f"Page size must be <= {self.max_page_size}.",
+                "errorData": {"page_size": page_size, "max_page_size": self.max_page_size}
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return result
+
+    def get_paginated_response(self, data):
+        return Response({
+            "meta": {
+                "total_items": self.page.paginator.count,
+                "total_pages": self.page.paginator.num_pages,
+                "current_page": self.page.number,
+                "page_size": self.get_page_size(self.request),
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link()
+            },
+            "data": data
+        })
+
+
+>>>>>>> Stashed changes
 def logout_then_redirect(request):
     logout(request)
     return redirect('/api/')
@@ -251,18 +341,39 @@ class CategoryViewSet(viewsets.ViewSet):
 class TransactionsViewSet(viewsets.ViewSet):
     serializer = TransactionsSerializer(Transactions)
 
+    @method_decorator(cache_page(60, key_prefix=lambda request: f"user_{request.user.id}"))
     # Get all list Transactions
     def list(self, request):
-        queryset = Transactions.objects.filter(user_id=request.user.id)
+        # Tạo key cache theo user + query params
+        raw_key = f"user={request.user.id}&{request.get_full_path()}"
+        cache_key = "transactions:" + hashlib.md5(raw_key.encode()).hexdigest()
 
+<<<<<<< Updated upstream
         type_trans = request.query_params.get('type_trans')
         if type_trans is not None:
             queryset = queryset.filter(type=type_trans)
+=======
+        # Kiểm tra cache
+        id_list = cache.get(cache_key)
+        if id_list is None:
+            # Query DB nếu chưa có cache
+            queryset = Transactions.objects.filter(user_id=request.user.id)
 
-        cate_id = request.query_params.get('cate_id')
-        if cate_id is not None:
-            queryset = queryset.filter(category_id=cate_id)
+            keyword = request.query_params.get('keyword')
+            if keyword:
+                words = keyword.split()
+                max_words = 50
+                search_string = " ".join(words[:max_words])
+                # queryset = queryset.extra(
+                #     where=["MATCH(notes) AGAINST (%s IN NATURAL LANGUAGE MODE)"],
+                #     params=[search_string],
+                # )
+>>>>>>> Stashed changes
 
+                for word in search_string.split():
+                    queryset = queryset.filter(notes__icontains=word)
+
+<<<<<<< Updated upstream
         amount_min = request.query_params.get('amount_min')
         amount_max = request.query_params.get('amount_max')
         if amount_min is not None and amount_max is not None:
@@ -272,10 +383,36 @@ class TransactionsViewSet(viewsets.ViewSet):
                 amount_max = Decimal(amount_max)
                 if amount_min <= amount_max:
                     queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
+=======
+            type_trans = request.query_params.get('type_trans')
+            if type_trans is not None:
+                queryset = queryset.filter(type=type_trans)
+
+            cate_id = request.query_params.get('cate_id')
+            if cate_id is not None:
+                queryset = queryset.filter(category_id=cate_id)
+
+            amount_min = request.query_params.get('amount_min')
+            amount_max = request.query_params.get('amount_max')
+            try:
+                if amount_min is not None:
+                    amount_min = Decimal(amount_min)
+                    queryset = queryset.filter(amount__gte=amount_min)
+                if amount_max is not None:
+                    amount_max = Decimal(amount_max)
+                    queryset = queryset.filter(amount__lte=amount_max)
+                if amount_min is not None and amount_max is not None and amount_max < amount_min:
+                    return Response({
+                        "errorCode": "400_INVALID_RANGE",
+                        "errorMessage": "`amount_min` must be <= `amount_max`.",
+                        "errorData": {"amount_min": str(amount_min), "amount_max": str(amount_max)}
+                    }, status=status.HTTP_400_BAD_REQUEST)
+>>>>>>> Stashed changes
             except InvalidOperation:
                 return Response({
                     "errorCode": "400_INVALID_DECIMAL",
                     "errorMessage": "Invalid amount format.",
+<<<<<<< Updated upstream
                     "errorData": {
                         "amount_min": amount_min,
                         "amount_max": amount_max
@@ -283,6 +420,21 @@ class TransactionsViewSet(viewsets.ViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
         serializer = TransactionsSerializer(queryset, many=True)
         return Response(serializer.data)
+=======
+                    "errorData": {"amount_min": amount_min, "amount_max": amount_max}
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Lưu id list vào cache (nhẹ hơn full object)
+            id_list = list(queryset.values_list("id", flat=True))
+            cache.set(cache_key, id_list, 60*60*24*7)
+
+        # Phân trang trực tiếp trên id_list đã cache
+        queryset = Transactions.objects.filter(id__in=id_list).order_by("-date")
+        paginator = MyPagination()
+        paginated_queryset = paginator.paginate_queryset(queryset, request)
+        serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
+>>>>>>> Stashed changes
 
     def create(self, request):
         data = request.data.copy()
