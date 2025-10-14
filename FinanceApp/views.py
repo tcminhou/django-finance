@@ -1,7 +1,13 @@
 import os
 import pytz
+import hashlib
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
+from django.contrib import admin
 from math import ceil
+
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timezone as dt_timezone
 
@@ -13,6 +19,7 @@ from django.http import FileResponse, Http404
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.contrib.auth import logout
+from django.db.models import Q
 from django.contrib.auth.hashers import make_password, check_password
 
 from rest_framework import viewsets, status, parsers, pagination
@@ -39,7 +46,7 @@ from FinanceApp.models import Users, Categories, Transactions, RevokedAccessToke
 class MyPagination(PageNumberPagination):
     page_size = 12
     page_size_query_param = 'page_size'
-    max_page_size = 100
+    max_page_size = 1000
 
     def paginate_queryset(self, queryset, request, view=None):
         # Lấy page number
@@ -341,62 +348,86 @@ class CategoryViewSet(viewsets.ViewSet):
 class TransactionsViewSet(viewsets.ViewSet):
     pagination_class = MyPagination
 
+    @method_decorator(cache_page(60, key_prefix=lambda request: f"user_{request.user.id}"))
     # Get all list Transactions
     def list(self, request):
+        # Tạo key cache theo user + query params
+        raw_key = f"user={request.user.id}&{request.get_full_path()}"
+        cache_key = "transactions:" + hashlib.md5(raw_key.encode()).hexdigest()
+
+# Kiểm tra cache
+    id_list = cache.get(cache_key)
+    if id_list is None:
+        # Query DB nếu chưa có cache
         queryset = Transactions.objects.filter(user_id=request.user.id)
 
         keyword = request.query_params.get('keyword')
         if keyword:
-            queryset = queryset.filter(notes__icontains=keyword)
+            words = keyword.split()
+            max_words = 50
+            search_string = " ".join(words[:max_words])
+            # queryset = queryset.extra(
+            #     where=["MATCH(notes) AGAINST (%s IN NATURAL LANGUAGE MODE)"],
+            #     params=[search_string],
+            # )
+            queryset = queryset.filter(notes__icontains=search_string)
 
-        type_trans = request.query_params.get('type_trans')
-        if type_trans is not None:
-            queryset = queryset.filter(type=type_trans)
 
-        cate_id = request.query_params.get('cate_id')
-        if cate_id is not None:
-            queryset = queryset.filter(category_id=cate_id)
+                    for word in search_string.split():
+                        queryset = queryset.filter(notes__icontains=word)
 
-        amount_min = request.query_params.get('amount_min')
-        amount_max = request.query_params.get('amount_max')
-        try:
-            if amount_min is not None:
-                amount_min = Decimal(amount_min)
-                queryset = queryset.filter(amount__gte=amount_min)
+    type_trans = request.query_params.get('type_trans')
+    if type_trans is not None:
+        queryset = queryset.filter(type=type_trans)
 
-            if amount_max is not None:
-                amount_max = Decimal(amount_max)
-                queryset = queryset.filter(amount__lte=amount_max)
+    cate_id = request.query_params.get('cate_id')
+    if cate_id is not None:
+        queryset = queryset.filter(category_id=cate_id)
 
-            if amount_min is not None and amount_max is not None:
-                if amount_max < amount_min:
-                    return Response({
-                        "errorCode": "400_INVALID_RANGE",
-                        "errorMessage": "`amount_min` must be less than or equal to `amount_max`.",
-                        "errorData": {
-                            "amount_min": str(amount_min),
-                            "amount_max": str(amount_max)
-                        }
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-                queryset = queryset.filter(amount__gte=amount_min, amount__lte=amount_max)
-
-        except InvalidOperation:
+    amount_min = request.query_params.get('amount_min')
+    amount_max = request.query_params.get('amount_max')
+    try:
+        if amount_min is not None:
+            amount_min = Decimal(amount_min)
+            queryset = queryset.filter(amount__gte=amount_min)
+        if amount_max is not None:
+            amount_max = Decimal(amount_max)
+            queryset = queryset.filter(amount__lte=amount_max)
+        if amount_min is not None and amount_max is not None and amount_max < amount_min:
             return Response({
-                "errorCode": "400_INVALID_DECIMAL",
-                "errorMessage": "Invalid amount format.",
-                "errorData": {
-                    "amount_min": amount_min,
-                    "amount_max": amount_max
-                }
+                "errorCode": "400_INVALID_RANGE",
+                "errorMessage": "`amount_min` must be <= `amount_max`.",
+                "errorData": {"amount_min": str(amount_min), "amount_max": str(amount_max)}
             }, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, InvalidOperation):
+        return Response({
+            "errorCode": "400_INVALID_AMOUNT",
+            "errorMessage": "Invalid `amount_min` or `amount_max` value."
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-        paginator = MyPagination()
-        paginated_queryset = paginator.paginate_queryset(queryset, request)
-        if isinstance(paginated_queryset, Response):
-            return paginated_queryset
-        serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
-        return paginator.get_paginated_response(serializer.data)
+                except InvalidOperation:
+                    return Response({
+                        "errorCode": "400_INVALID_DECIMAL",
+                        "errorMessage": "Invalid amount format.",
+
+    if amount_min is not None and amount_max is not None and amount_max < amount_min:
+        return Response({
+            "errorCode": "400_INVALID_RANGE",
+            "errorMessage": "`amount_min` must be <= `amount_max`.",
+            "errorData": {"amount_min": amount_min, "amount_max": amount_max}
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    # Lưu id list vào cache (nhẹ hơn full object)
+    id_list = list(queryset.values_list("id", flat=True))
+    cache.set(cache_key, id_list, 60 * 60 * 24 * 7)
+
+    # Phân trang trực tiếp trên id_list đã cache
+    queryset = Transactions.objects.filter(id__in=id_list).order_by("-date")
+    paginator = MyPagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = TransactionsSerializer(paginated_queryset, many=True, context={'request': request})
+    return paginator.get_paginated_response(serializer.data)
+
 
     def create(self, request):
         data = request.data.copy()
